@@ -42,6 +42,24 @@
 </head>
 <body class="min-h-screen flex flex-col antialiased selection:bg-cyanAccent selection:text-darkBg">
 
+    <div id="copy-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm transition-opacity">
+        <div class="bg-gray-800 p-6 rounded-2xl max-w-sm w-full border border-gray-700 shadow-2xl relative transform transition-transform">
+            <button onclick="document.getElementById('copy-modal').classList.add('hidden')" class="absolute top-4 right-4 text-gray-400 hover:text-white transition">
+                <i class="fa-solid fa-xmark text-xl"></i>
+            </button>
+            <h3 class="text-xl font-bold mb-4 text-cyanAccent"><i class="fa-solid fa-share-nodes mr-2"></i>Lobby teilen</h3>
+            <div class="space-y-3">
+                <button onclick="Host.copyToClipboard('code')" class="w-full py-4 bg-gray-900 hover:bg-gray-700 border border-gray-700 hover:border-cyanAccent rounded-xl flex items-center justify-between px-4 transition btn-press">
+                    <span class="font-bold text-gray-200">Nur Code kopieren</span> <i class="fa-solid fa-hashtag text-cyanAccent text-lg"></i>
+                </button>
+                <button onclick="Host.copyToClipboard('link')" class="w-full py-4 bg-gray-900 hover:bg-gray-700 border border-gray-700 hover:border-cyanAccent rounded-xl flex items-center justify-between px-4 transition btn-press">
+                    <span class="font-bold text-gray-200">Einladungslink kopieren</span> <i class="fa-solid fa-link text-cyanAccent text-lg"></i>
+                </button>
+            </div>
+            <p id="copy-feedback" class="text-green-400 text-sm mt-4 text-center hidden font-bold animate-pulse"><i class="fa-solid fa-check mr-1"></i> Erfolgreich kopiert!</p>
+        </div>
+    </div>
+
     <div id="screen-role" class="flex-1 flex items-center justify-center p-6">
         <div class="glass p-8 rounded-2xl w-full max-w-md text-center shadow-2xl">
             <h1 class="text-4xl font-extrabold mb-2 text-transparent bg-clip-text bg-gradient-to-r from-cyanAccent to-deepPurple">Quiz Master</h1>
@@ -65,7 +83,12 @@
         <div class="w-full max-w-5xl grid grid-cols-1 md:grid-cols-2 gap-8">
             <div class="glass p-8 rounded-2xl flex flex-col items-center text-center">
                 <h2 class="text-2xl font-bold mb-2">Lobby-Code</h2>
-                <div class="text-5xl font-extrabold tracking-widest text-cyanAccent mb-6 bg-gray-900 py-3 px-6 rounded-lg select-all" id="host-lobby-id">---</div>
+                
+                <div onclick="Host.showCopyMenu()" title="Klicken zum Teilen" class="flex items-center justify-center gap-4 bg-gray-900 hover:bg-gray-800 border border-gray-700 hover:border-cyanAccent py-3 px-6 rounded-xl mb-6 cursor-pointer transition-all group shadow-lg">
+                    <div class="text-5xl font-extrabold tracking-widest text-cyanAccent" id="host-lobby-id">---</div>
+                    <i class="fa-regular fa-copy text-2xl text-gray-500 group-hover:text-cyanAccent transition"></i>
+                </div>
+                
                 <div class="bg-white p-2 rounded-lg mb-4">
                     <canvas id="qr-code"></canvas>
                 </div>
@@ -249,7 +272,6 @@
         </div>
     </div>
 
-    <!-- KOMPLETT ÜBERARBEITETER SIEGEREHRUNG-SCREEN -->
     <div id="screen-podium" class="hidden flex-1 flex flex-col items-center justify-center p-6 relative bg-gray-900 overflow-hidden">
         <div class="absolute inset-0 bg-gradient-to-b from-gray-900 via-gray-800 to-black z-0"></div>
         
@@ -297,6 +319,7 @@
             isHost: false,
             gameStarted: false,
             lobbyId: null,
+            inviteLink: null, // NEU: Speichert den Link
             connections: {}, 
             players: [], 
             currentQuestion: null,
@@ -477,9 +500,24 @@
         const App = {
             init() {
                 const urlParams = new URLSearchParams(window.location.search);
-                if(urlParams.has('lobby')) {
-                    document.getElementById('player-lobby-input').value = urlParams.get('lobby');
+                // NEU: Liest ?code= aus
+                const code = urlParams.get('code') || urlParams.get('lobby');
+                
+                if(code) {
+                    document.getElementById('player-lobby-input').value = code;
                     App.showPlayerJoin();
+                    
+                    // NEU: Automatischer Versuch beizutreten
+                    setTimeout(() => {
+                        const name = prompt("Du wurdest eingeladen! Bitte gib deinen Spielernamen ein:");
+                        if(name && name.trim() !== "") {
+                            document.getElementById('player-name-input').value = name.trim();
+                            Player.join();
+                        } else {
+                            // Wenn abgebrochen, Fokus auf das Namensfeld setzen
+                            document.getElementById('player-name-input').focus();
+                        }
+                    }, 300);
                 } else {
                     UI.show('screen-role');
                 }
@@ -494,7 +532,10 @@
                 UI.show('screen-host-lobby');
                 document.getElementById('host-lobby-id').innerText = AppState.lobbyId;
                 
-                const joinUrl = `${window.location.origin}${window.location.pathname}?lobby=${AppState.lobbyId}`;
+                // NEU: QR Code verweist auf die spezifische GitHub-Pages URL
+                const joinUrl = `https://scheilutz-star.github.io/Lustiges-Quizspiel?code=${AppState.lobbyId}`;
+                AppState.inviteLink = joinUrl; 
+                
                 new QRious({ element: document.getElementById('qr-code'), value: joinUrl, size: 150, backgroundAlpha: 0, foreground: '#00E5FF' });
 
                 AppState.peer = new Peer(AppState.lobbyId);
@@ -545,6 +586,28 @@
         };
 
         const Host = {
+            // NEU: Steuert das Kopieren des Codes oder des Links
+            showCopyMenu() {
+                document.getElementById('copy-modal').classList.remove('hidden');
+                document.getElementById('copy-feedback').classList.add('hidden');
+            },
+
+            copyToClipboard(type) {
+                const textToCopy = type === 'code' ? AppState.lobbyId : AppState.inviteLink;
+                navigator.clipboard.writeText(textToCopy).then(() => {
+                    const feedback = document.getElementById('copy-feedback');
+                    feedback.innerHTML = type === 'code' ? '<i class="fa-solid fa-check mr-1"></i> Code kopiert!' : '<i class="fa-solid fa-check mr-1"></i> Link kopiert!';
+                    feedback.classList.remove('hidden');
+                    
+                    setTimeout(() => {
+                        document.getElementById('copy-modal').classList.add('hidden');
+                    }, 1500);
+                }).catch(err => {
+                    console.error("Fehler beim Kopieren: ", err);
+                    alert("Kopieren fehlgeschlagen. Bitte manuell markieren.");
+                });
+            },
+
             handleConnection(conn) {
                 conn.on('data', data => {
                     if(data.type === 'join') {
@@ -1074,7 +1137,6 @@
                     
                     if(sortedScores.length === 0) return;
 
-                    // Komplett überarbeitetes Treppchen für perfekten 3D-Look und Namens-Lesbarkeit
                     const places = [
                         { idx: 1, height: 'h-40 md:h-48', color: 'bg-gradient-to-t from-gray-700 to-gray-400', border: 'border-gray-300', text: 'text-gray-100', shadow: 'shadow-[0_0_15px_rgba(156,163,175,0.3)]' }, 
                         { idx: 0, height: 'h-56 md:h-64', color: 'bg-gradient-to-t from-yellow-600 to-yellow-400', border: 'border-yellow-300', text: 'text-yellow-100', shadow: 'shadow-[0_0_20px_rgba(250,204,21,0.5)]' }, 
